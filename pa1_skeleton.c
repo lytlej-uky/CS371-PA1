@@ -19,9 +19,9 @@
 /* 
 Please specify the group members here
 
-# Student #1: 
-# Student #2:
-# Student #3: 
+# Student #1: Joshua Lytle
+# Student #2: Drew Workman
+# Student #3: Rian Gallagher
 
 */
 
@@ -68,11 +68,14 @@ void *client_thread_func(void *arg) {
     // Register the "connected" client_thread's socket in its epoll instance
     event.events = EPOLLOUT;
     event.data.fd = data->socket_fd;
+
+    // Add the socket to the epoll instance
     if (epoll_ctl(data->epoll_fd, EPOLL_CTL_ADD, data->socket_fd, &event) == -1) {
         perror("epoll_ctl");
         pthread_exit(NULL);
     }
 
+    // Set initial values to 0
     data->total_rtt = 0;
     data->total_messages = 0;
     data->request_rate = 0.0;
@@ -97,8 +100,9 @@ void *client_thread_func(void *arg) {
             perror("recv");
             pthread_exit(NULL);
         }
-        gettimeofday(&end, NULL);
 
+        // Get end time and update totals
+        gettimeofday(&end, NULL);
         data->total_messages++;
         data->total_rtt += (end.tv_sec - start.tv_sec) * 1000000 + (end.tv_usec - start.tv_usec);
     }
@@ -147,12 +151,9 @@ void run_client() {
     }
 
     for (int i = 0; i < num_client_threads; i++) {
+        // For each thread, launch a new one and pass the thread data
         pthread_create(&threads[i], NULL, client_thread_func, &thread_data[i]);
     }
-
-    /* TODO:
-     * Wait for client threads to complete and aggregate metrics of all client threads
-     */
 
     long long total_rtt = 0;
     long total_messages = 0;
@@ -190,18 +191,21 @@ void run_server() {
     server_addr.sin_addr.s_addr = INADDR_ANY;
     server_addr.sin_port = htons(server_port);
 
+    // bind the server to the ip and port
     if (bind(server_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1) {
         perror("bind");
         close(server_fd);
         exit(EXIT_FAILURE);
     }
 
+    // listen for incoming connections
     if (listen(server_fd, SOMAXCONN) == -1) {
         perror("listen");
         close(server_fd);
         exit(EXIT_FAILURE);
     }
 
+    // create the epoll instance
     epoll_fd = epoll_create1(0);
     if (epoll_fd == -1) {
         perror("epoll_create1");
@@ -209,6 +213,7 @@ void run_server() {
         exit(EXIT_FAILURE);
     }
 
+    // add the server socket to the epoll instance
     event.events = EPOLLIN;
     event.data.fd = server_fd;
     if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, server_fd, &event) == -1) {
@@ -219,6 +224,7 @@ void run_server() {
     }
 
     while (1) {
+        // wait for a client to connect
         int num_events = epoll_wait(epoll_fd, events, MAX_EVENTS, -1);
         if (num_events == -1) {
             perror("epoll_wait");
@@ -227,26 +233,31 @@ void run_server() {
             exit(EXIT_FAILURE);
         }
 
+        // for each event received, handle it
         for (int i = 0; i < num_events; i++) {
             if (events[i].data.fd == server_fd) {
+                // accept the incoming connection
                 int client_fd = accept(server_fd, NULL, NULL);
                 if (client_fd == -1) {
                     perror("accept");
-                    continue;
+                    continue; // if one errors try the next
                 }
-
+                
+                // add the client socket to the epoll instance
                 event.events = EPOLLIN;
                 event.data.fd = client_fd;
                 if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_fd, &event) == -1) {
                     perror("epoll_ctl");
                     close(client_fd);
-                    continue;
+                    continue; // if one errors try the next
                 }
             } else {
+                // existing connection receive data
                 char recv_buf[MESSAGE_SIZE];
                 if (recv(events[i].data.fd, recv_buf, MESSAGE_SIZE, 0) <= 0) {
                     close(events[i].data.fd);
                 } else {
+                    // send acknowledge message
                     if (send(events[i].data.fd, recv_buf, MESSAGE_SIZE, 0) == -1) {
                         perror("send");
                         close(events[i].data.fd);
@@ -256,6 +267,7 @@ void run_server() {
         }
     }
 
+    // close the file descriptors
     close(server_fd);
     close(epoll_fd);
 }
